@@ -1,0 +1,54 @@
+/*  Notes:
+  * if not need particular var, then add a '*' in front of it to omit settings ;
+    this will help using one list to be operated in all files, in case of forget anything ;
+*/
+
+/*============================ Common Variable List ========================== */
+
+	%LET PID 		  = ENROLID ;		*<--- PUT 	PATIENT ID			    VARIABLE NAME HERE ;
+	%LET ENCID		= CASEID  ;		*<--- PUT 	ENCOUNTER ID 		    VARIABLE NAME HERE ;
+	%LET ENCTYP		=         ;		*<--- PUT   ENCOUNTER TYPE 		  VARIABLE NAME HERE ;
+
+/*============================ Date Variable List ========================== */
+
+  %LET ADMDT		= ADMDATE ;		*<--- PUT 	ADMIT DATE 			    VARIABLE NAME HERE ;
+	%LET DISDT 		= DISDATE ;		*<--- PUT 	DISCHARGE DATE 		  VARIABLE NAME HERE ;
+	%LET SVCSTRT	= SVCDATE ;		*<--- PUT 	SERVICE START DATE 	VARIABLE NAME HERE ;
+	%LET SVCEND		= TSVCDAT ;		*<--- PUT 	SERVICE END DATE 	  VARIABLE NAME HERE ;
+  %LET PXDT     =         ;
+  %LET RXDT     =         ;
+
+
+/* =========================== PROVIDER Variable List ======================= * 
+
+	%LET PROVID		= COALESCEC(PUT(COALESCE(PHYSID,PROVID),10.),PHYS_ID)	;	
+											                  *^--- PUT 	PROVIDER ID 		  VARIABLE NAME HERE ;
+	%LET PROVIDTYP 	= 					      ;	  *<--- PUT 	PROVIDER ID TYPE 	VARIABLE NAME HERE ;
+	%LET PROVTYP	= PUT(STDPROV,3.) 	;	  *<--- PUT 	PROVIDER TYPE 		VARIABLE NAME HERE ;
+
+	%LET FACID		= UNIHOSP           ;		*<--- PUT 	FACILITY ID 			VARIABLE NAME HERE ; 
+	%LET FACTYP		= STDPLAC           ;		*<--- PUT 	FACILITY TYPE 		VARIABLE NAME HERE ;
+  
+  
+/* =========================== DX Variable List ======================= */
+
+	%LET PDX		  =								      ; *<--- PUT	  PRIM DX INDICATOR	      VARIABLE NAME HERE ;
+	%LET PRIMDX		= /*PDX->*/PRIMDX_		;	*<--- PUT	  PRIMARY DIAGNOSIS 	    VARIABLE NAME HERE ; * MARKED AS NAME CHANGED DUE TO CONFLIC WITH CDM VAR SETTINGS ;
+	%LET DXVAR		= 								    ;	*<--- PUT   DIAGNOSIS 			        VARIABLE NAME HERE ;
+	%LET DXTYP		= DXVER							  ;	*<--- PUT	  DIAGNOSIS TYPE 		      VARIABLE NAME HERE ;
+	%LET POA		  = 								    ;	*<--- PUT	  PRIMARY DX OF ADMISSION VARIABLE NAME HERE ;
+	%LET DRG		  = /*PUT(DRG,3.)->*/PUT(DRG_,3.)	;
+                                        *^--- PUT	  DRG					            VARIABLE NAME HERE ;
+	%LET DRGTYP		= 								    ;	*<--- PUT	  DRG GROUP			          VARIABLE NAME HERE ;
+
+
+/* =========================== PX Variable List ======================= */ 
+
+	%LET PPX		  = 			; *<--- PUT 	PRIM PX INDICATOR 	  VARIABLE NAME HERE ;
+	%LET PRIMPX		=			  ;	*<--- PUT 	PRIMARY PX				    VARIABLE NAME HERE ;
+	%LET PX_VAR		= 			;	*<--- PUT 	PROCEDURES 				    VARIABLE NAME HERE ;
+	%LET PXTYP		= 			;	*<--- PUT 	DIAGNOSIS TYPE 			  VARIABLE NAME HERE ;
+
+	%LET PXAMT		= QTY 	;	*<--- PUT	  COUNT OF PX PERFORMED	VARIABLE NAME HERE ;
+	%LET PXPAID		= PAY 	;	*<--- PUT	  PX PAYMENT 				    VARIABLE NAME HERE ;
+  
