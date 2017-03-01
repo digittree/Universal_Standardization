@@ -1,0 +1,324 @@
+
+/************************************************************************************
+*	Codes Pack Developed Based on Truven MarketScan Data
+*	Coder:            Shuo Yang
+*	Last Modified on: 03/01/2017
+*	Notes:
+*************************************************************************************/
+
+/* ======================================================================== */
+/*						                  UNIVERSAL SETTINGS			               			*/
+
+%inc "U:\studies\AS\formats\libname_as.txt";    *<--THIS DEFINES LIBRARY NEEDED ;
+
+%let RAWLI B  = MS_16_1 ;				*<--CAN BE DIFFERENT WITHIN ONE PROJ, SO DON'T SET IT UNIVERSALY ;
+%let PW       = mscan16 ;       *<--IF NO PW REQUIRED IN RAW DATA, REMEMBER TO DROP THE OPTION IN PULLING DATA STEP ;
+
+%LET STDLIB		= UCBSTD  ;				*<--THIS IS DEFINING THE STANDARDIZED LIBRARY ;
+%LET VIEW		  = DT      ;				*<--THIS IS DEFINING THE VIEW LIBRARY ;
+%LET WRKLIB		= UCB     ;				*<--THIS IS DEFINING THE SPEED ENGINE LIBRARY ;
+
+************************END OF UNIVERSAL SETTINGS****************;
+
+/*
+proc datasets lib= &SPDE. kill nolist;
+quit;run;
+*/
+
+
+/* ====================================================================================== */
+/*	  					                  DEFINE VARIABLES AS NEEDED				                   		*/
+
+	%LET PID 		  = ENROLID 		  ;		*<--- PUT 	PATIENT ID			          VARIABLE NAME HERE ;
+
+	%LET ENCID		= CASEID 			  ;		*<--- PUT 	ENCOUNTER ID 		          VARIABLE NAME HERE ;
+*	%LET ENCTYP		=  					        ;		*<--- PUT	ENCOUNTER TYPE 		      VARIABLE NAME HERE ;
+
+	%LET ADMDT		= ADMDATE 			    ;		*<--- PUT 	ADMIT DATE 			      VARIABLE NAME HERE ;
+	%LET DISDT 		= DISDATE 			    ;		*<--- PUT 	DISCHARGE DATE 		    VARIABLE NAME HERE ;
+	%LET SVCSTRT	= SVCDATE 			    ;		*<--- PUT 	SERVICE START DATE 	  VARIABLE NAME HERE ;
+	%LET SVCEND		= TSVCDAT 			    ;		*<--- PUT 	SERVICE END DATE 	    VARIABLE NAME HERE ;
+
+	%LET PROVID		= COALESCEC(PUT(COALESCE(PHYSID,PROVID),10.),PHYS_ID,PROV_ID)	;	
+                                        *^--- PUT 	PROVIDER ID 		      VARIABLE NAME HERE ;
+                                    
+	%LET PROVIDTYP 	= NOEXIST			    ;		*<--- PUT 	PROVIDER ID TYPE 	    VARIABLE NAME HERE ;
+	%LET PROVTYP	= PUT(STDPROV,3.) 	;		*<--- PUT 	PROVIDER TYPE 		    VARIABLE NAME HERE ;
+
+	%LET FACID		= COALESCEC(UNIHOSP,HOSP_ID) ;		*<--- PUT 	FACILITY ID 			VARIABLE NAME HERE ; 
+	%LET FACTYP		= STDPLAC 			    ;		*<--- PUT 	FACILITY TYPE 			  VARIABLE NAME HERE ;
+
+	%LET PPX		  = 					        ; 	*<--- PUT 	PRIM PX INDICATOR 		VARIABLE NAME HERE ;
+	%LET PRIMPX		= PPROC				      ;		*<--- PUT 	PRIMARY PX				    VARIABLE NAME HERE ;
+	%LET PXVAR		= 					        ;		*<--- PUT 	PROCEDURES 				    VARIABLE NAME HERE ;
+	%LET PXTYP		= PROCTYP			      ;		*<--- PUT	DIAGNOSIS TYPE 			    VARIABLE NAME HERE ;
+
+	%LET PXAMT		= QTY 				      ;		*<--- PUT	COUNT OF PX PERFORMED	  VARIABLE NAME HERE ;
+	%LET PXPAID		= PAY 				      ;		*<--- PUT	PX PAYMENT 				      VARIABLE NAME HERE ;
+
+
+
+/*						                        END OF VARIABLE DEFINTIONS		  		                		*/
+/* ========================================================================================== */
+
+/* ========== PULL THE DATA FROM RAW, WITH NEEDED VARIABLES ONLY ============ */
+
+%macro pul_nodup_vars(dstin, dstout, rawid, kepvars, renam, wherextra);
+proc sort data=&dstin(pw=&pw. keep=&kepvars.
+					  where=(not missing(&rawid.) &wherextra.) ) nodupkey
+		  out =&dstout (rename=&renam. compress=binary);
+by &kepvars. ;
+run;
+%mend;
+
+/* ============== PREPARE THE DATA FOR VERTICAL USE ================= */
+
+%MACRO PREP_PX(SRC, DATAOUT, STRTYR, ENDYR, FACTYP, PXS); 
+
+%do year=&strtyr. %to &endyr.;
+
+data &VIEW..PREP_PX_&YEAR._&DATAOUT. / VIEW=&VIEW..PREP_PX_&YEAR._&DATAOUT. ;
+
+length 	PATID 			$20
+       	ENCOUNTERID 	$15
+		/*ENC_TYPE		$2*/
+		ADMIT_DATE 		4
+		DISCHARGE_DATE 	4
+		BEGIN_DATE 		4
+		END_DATE 		4
+		PX_DATE 		4
+		PX_TYPE			$2
+		PX 				$11
+		PROV_ID		$10
+		PROV_ID_TYPE	$4
+		PROV_TYPE		$3
+		FACILITY_ID		$16
+		FACILITY_TYPE	$3
+		PX_AMT			4
+		PX_PAID			8
+       	SOURCE 			$5
+  ;
+
+label 	PATID  			= "Unique Patient Identification Number"
+      	ENCOUNTERID		= "Encounter ID"
+		ADMIT_DATE		= "Admission Date"
+		DISCHARGE_DATE	= "Discharge Date"
+		BEGIN_DATE		= "Beginning Date of Service"
+		END_DATE		= "Ending Date of Service"
+		PX_DATE			= "Procedure Date"
+		PX_TYPE			= "Procedure Code Type"
+      	PX				= "Procedure Code"
+		PROV_ID			= "Provider ID"
+		PROV_ID_TYPE	= "Provider ID Type"
+		PROV_TYPE		= "Provider Type"
+		FACILITY_ID		= "Facility ID"
+		FACILITY_TYPE	= "Place of Service"
+		PX_AMT			= "Count of Procedure Performed"
+		PX_PAID			= "Procedure Paid Amount"
+	  	SOURCE			= "Data Source"
+  ;
+                        
+set &wrklib..nodupul_px_&year._&DATAOUT. ; 
+
+PATID			= strip(&PID.);
+
+ENCOUNTERID		= strip(&ENCID.);
+
+ADMIT_DATE		= &ADMDT. ;
+DISCHARGE_DATE	= &DISDT. ;
+BEGIN_DATE		= coalesce(&SVCSTRT.,&ADMDT.) ;
+END_DATE		= coalesce(&SVCEND., &DISDT.) ;
+
+PX_DATE			= coalesce(&SVCSTRT.,&ADMDT.) ;
+
+PROV_ID 		= strip(&PROVID.) ;
+PROV_ID_TYPE 	= strip(&PROVIDTYP.) ;
+PROV_TYPE		= strip(&PROVTYP.) ;
+
+FACILITY_ID		= strip(&FACID.) ;
+FACILITY_TYPE	= strip(&FACTYP.); 
+
+PX_AMT			= &PXAMT. ;
+PX_PAID			= &PXPAID. ;
+
+SOURCE			= "&SRC.";
+
+array pxs(*) &PRIMPX. &PXS. ;  
+
+do i=1 to dim(pxs) ;
+
+	PX=strip(pxs(i)) ;
+
+	if 		i=1 and strip(pxs(i)) not in ('','.') then PPX='P';
+	else if i=2 and strip(pxs(i)) not in ('','.') then PPX='P';
+	else PPX='O';
+	
+	 if strip(&pxtyp.)='0' 	then PX_TYPE='10';
+else if length(px)=7		then PX_TYPE='10';
+else if length(px)<5 		then PX_TYPE='09';
+else if length(px)>=5 and anyalpha(px)=0 then PX_TYPE='C1';
+else if length(px)>=5 and anyalpha(px)>=1 then PX_TYPE='H1';
+
+	if strip(pxs(i)) not in ('','.') then output;
+
+end;
+
+format 	ADMIT_DATE 	DISCHARGE_DATE 	BEGIN_DATE 	END_DATE 	PX_DATE 	mmddyy10.
+		PX_AMT 		PX_PAID 		BEST12. ;
+
+keep PATID 		ENCOUNTERID 
+	ADMIT_DATE 	DISCHARGE_DATE 	BEGIN_DATE 	END_DATE 
+	PX_DATE 	PX_TYPE 		PPX		PX 	PX_AMT 		PX_PAID 
+	FACILITY_ID FACILITY_TYPE 
+	SOURCE ;
+run;
+
+proc sort data=&VIEW..PREP_PX_&YEAR._&DATAOUT. nodup
+		  out =&WRKLIB..PREP_PX_&YEAR._&DATAOUT.(compress=binary);
+by 	PATID 		ENCOUNTERID 
+	ADMIT_DATE 	DISCHARGE_DATE 	BEGIN_DATE 	END_DATE 
+	PX_DATE 	PX_TYPE 		PPX 	PX	PX_AMT 		PX_PAID 
+	FACILITY_ID FACILITY_TYPE 
+	SOURCE ;
+run;
+
+%end;
+
+%MEND;
+
+/* --------------------- I FILE PART ------------------ */
+
+%let fid=I ; %let cctl = 103; %let mrtl = 103; %let mdtl = 2010_v2; %let year = 2010;
+
+%pul_nodup_vars(&rawlib..ccae&fid.&cctl.,	&wrklib..nodupul_px_&year._&fid.cc, enrolid,
+				enrolid 	caseid 			admdate 	disdate 
+				pproc 		proc1-proc15 	/*qty 		pay*/ 
+				PHYSID/*phys_id provid 		stdprov*/ 	
+				UNIHOSP 	/*stdplac*/ 	case, 		( ), 	);
+%pul_nodup_vars(&rawlib..mdcr&fid.&mrtl.,	&wrklib..nodupul_px_&year._&fid.mr, enrolid,
+				enrolid 	caseid 			admdate 	disdate 
+				pproc 		proc1-proc15 	/*qty 		pay*/ 
+				PHYSID/*phys_id provid 		stdprov*/ 
+				UNIHOSP 	/*stdplac*/ 	case, 		( ), 	);
+%pul_nodup_vars(&rawlib..medicaid_&fid._&mdtl.,	&wrklib..nodupul_px_&year._&fid.md, enrolid,
+				enrolid 	caseid 			admdate 	disdate 
+				pproc 		proc1-proc15 	/*qty 		pay*/ 
+				PHYS_ID/*phys_id provid 	stdprov*/ 	
+				HOSP_ID 	/*stdplac*/ 	case, 		( ), 	);
+
+%macro run_pul_nodup_vars(fid,cctl,mrtl,mdtl,year);
+
+%pul_nodup_vars(&rawlib..ccae&fid.&cctl.,	&wrklib..nodupul_px_&year._&fid.cc, enrolid,
+				enrolid 	caseid 			admdate 	disdate 
+				pproc 		proc1-proc15 	/*qty 		pay*/ 
+				PHYSID/*phys_id provid 		stdprov*/ 
+				/*UNIHOSP 	stdplac*/ 		case, 		( ), 	);
+%pul_nodup_vars(&rawlib..mdcr&fid.&mrtl.,	&wrklib..nodupul_px_&year._&fid.mr, enrolid,
+				enrolid 	caseid 			admdate 	disdate 
+				pproc 		proc1-proc15 	/*qty 		pay*/ 
+				PHYSID/*phys_id provid 		stdprov*/ 
+				/*UNIHOSP 	stdplac*/ 		case, 		( ), 	);
+%pul_nodup_vars(&rawlib..medicaid_&fid._&mdtl.,	&wrklib..nodupul_px_&year._&fid.md, enrolid,
+				enrolid 	caseid 			admdate 	disdate 
+				pproc 		proc1-proc15 	/*qty 		pay*/ 
+				PHYS_ID/*phys_id provid 	stdprov*/ 
+				HOSP_ID 	/*stdplac*/ 	case, 		( ), 	);
+%mend;
+%run_pul_nodup_vars(i,113,113,2011_v2,2011);
+%run_pul_nodup_vars(i,123,123,2012_v2,2012);
+%run_pul_nodup_vars(i,133,133,2013_v3,2013);
+%run_pul_nodup_vars(i,142,142,2014_v1,2014);
+
+
+%prep_px(SRC=CCAEI, 	DATAOUT=ICC, 			STRTYR=2010, 	ENDYR=2014,
+		FACTYP="21", 	PXS=PPROC PROC1-PROC15); 
+%prep_px(SRC=MDCRI, 	DATAOUT=IMR, 			STRTYR=2010, 	ENDYR=2014,
+		FACTYP="21", 	PXS=PPROC PROC1-PROC15); 
+%prep_px(SRC=MDCDI, 	DATAOUT=IMD, 			STRTYR=2010, 	ENDYR=2014,
+		FACTYP="21", 	PXS=PPROC PROC1-PROC15); 
+
+
+*********************************** Create Permanent Datasets by Year ************************;
+
+%MACRO STD_PX_YEAR(YEAR);
+data &VIEW..PX_&year. / VIEW=&VIEW..PX_&YEAR. ;
+
+set &SPDE..PULL_PX_&YEAR._: ;
+
+run;
+
+proc sort data= &VIEW..PX_&YEAR. nodup
+		  out = &STD..PX_&year.(index=(PATID PX_DATE) label="&Year PXs from UCB I, F, S and O Files" compress=yes);
+by 	PATID PX_DATE PX_TYPE PX ;
+run;
+
+%MEND;
+%STD_PX_YEAR(2010);
+%STD_PX_YEAR(2011);
+
+/* ======================================================== */
+/* 						Testing codes 						*/
+/* ======================================================== */
+
+proc format;
+	value mis_n
+		. = 'miss'
+	other = 'nonmiss'
+	;
+	value $mis_c
+	'','.' = 'miss'
+	other  = 'nonmiss'
+	;
+run;
+
+%let Folder=U:\studies\AS\shared\shuo\Results\20161018-STD Quick Facts ;
+
+%macro chek_stdpx_contents(startyr,endyr);
+ods html file="&folder.\Standardized Px Data Contents &startyr. - &endyr..html";
+%do year=&startyr. %to &endyr.;
+title "Year &year.";
+proc contents data=&stdlib..px_&year.;run;
+%end;
+ods html close;title;
+%mend;
+%chek_stdpx_contents(2010,2014);
+
+
+%macro chek_stdpx_dates(startyr,endyr);
+ods html file="&folder.\Standardized Px Dates Check &startyr._&endyr..html";
+%do year=&startyr. %to &endyr.;
+title "Year &year.";
+proc freq data=&stdlib..px_&year.;
+table (admit_date discharge_date begin_date end_date px_date) * source / nocol nopercent missing;
+format admit_date discharge_date begin_date end_date px_date mis_n. ;
+run;
+%end;
+ods html close;title;
+%mend;
+%chek_stdpx_dates(2010,2014);
+
+
+%macro chek_stdpx_src_pxtyp_freq(startyr,endyr);
+ods html file="&folder.\Standardized Px Source vs Type &startyr._&endyr..html";
+%do year=&startyr. %to &endyr.;
+title "Year &year.";
+proc freq data=&stdlib..px_&year.;
+table source*px_type/nocol norow missing ;
+run;
+%end;
+ods html close;title;
+%mend;
+%chek_stdpx_src_pxtyp_freq(2010,2014);
+
+%macro chek_stdpx_enc_provtyp_freq(startyr,endyr);
+ods html file="&folder.\Standardized Px EncType vs ProvType &startyr._&endyr..html";
+%do year=&startyr. %to &endyr.;
+title "Year &year.";
+proc freq data=&stdlib..px_&year.;
+table prov_type*enc_type/nocol norow missing;
+format prov_type $mis_c. ;
+run;
+%end;
+ods html close;title;
+%mend;
+%chek_stdpx_enc_provtyp_freq(2010,2014);
