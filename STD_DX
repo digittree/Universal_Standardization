@@ -1,0 +1,718 @@
+
+/************************************************************************************
+*	Codes Pack Developed Based on Truven MarketScan Data
+*	Coder:            Shuo Yang
+*	Last Modified on: 03/01/2016
+*	Notes:
+*************************************************************************************/
+
+/* ================================================================================== */
+/*						                      UNIVERSAL SETTINGS			                  			  */
+/* ================================================================================== */
+
+%inc "U:\studies\AS\formats\libname_as.txt";
+
+%let RAWLIB   = MS_16_1 ;				*<--CAN BE DIFFERENT WITHIN ONE PROJ, SO DON'T SET IT UNIVERSALY ;
+%let PW       = mscan16;        *<--IF NO PW IN RAW DATA, REMEMER TO REMOVE PW SETTING IN PULLING NECESSARY VAR STEP ;
+
+%LET STDLIB		= STDUCB ;				*<--THIS IS DEFINING THE STANDARDIZED LIBRARY ;
+%LET VIEW		  = DT ;				    *<--THIS IS DEFINING THE VIEW LIBRARY ;
+%LET WRKLIB		= UCB; 				    *<--THIS IS DEFINING THE SPEED ENGINE LIBRARY ;
+
+************************************************************************;
+
+/*
+proc datasets lib= &WRKLIB. kill nolist;
+quit;run;
+*/
+
+
+/* ============================================================================================ */
+/*						                  DEFINE COMMON SEEN VARIABLES AS BELOW		                 				*/
+
+	%LET PID 		= PUT(ENROLID,20.) 			;	*<--- PUT 	PATIENT ID			    VARIABLE NAME HERE ;
+
+	%LET ENCID		= PUT(CASEID,15.) 		;	*<--- PUT 	ENCOUNTER ID 		    VARIABLE NAME HERE ;
+	%LET ENC_TYPE	=  								    ;	*<--- PUT	  ENCOUNTER TYPE 		  VARIABLE NAME HERE ;
+
+  %LET ADMDT		= ADMDATE 						;	*<--- PUT 	ADMIT DATE 			    VARIABLE NAME HERE ;
+	%LET ADMTYP		= ADMTYP 						  ;	*<--- PUT 	ADMIT TYPE			    VARIABLE NAME HERE ;
+	%LET ADMDX		= 								    ;	*<--- PUT 	ADMIT DX			      VARIABLE NAME HERE ;
+
+	%LET DISDT 		= DISDATE 						;	*<--- PUT 	DISCHARGE DATE 		  VARIABLE NAME HERE ;
+	%LET DSTAT		= DSTATUS 						;	*<--- PUT 	DISCHARGE STATUS 	  VARIABLE NAME HERE ;
+
+	%LET SVCSTRT	= SVCDATE 						;	*<--- PUT 	SERVICE START DATE 	VARIABLE NAME HERE ;
+	%LET SVCEND		= TSVCDAT 						;	*<--- PUT 	SERVICE END DATE 	  VARIABLE NAME HERE ;
+
+	%LET PROVID		= COALESCEC(PUT(COALESCE(PHYSID,PROVID),10.),PHYS_ID)	;	
+														            *^--- PUT 	PROVIDER ID 		    VARIABLE NAME HERE ;
+	%LET PROVIDTYP 	= 								  ;	*<--- PUT 	PROVIDER ID TYPE 	  VARIABLE NAME HERE ;
+	%LET PROVTYP	= PUT(STDPROV,3.) 		;	*<--- PUT 	PROVIDER TYPE 		  VARIABLE NAME HERE ;
+
+	%LET FACID		= COALESCEC(PUT(UNIHOSP,10.), HOSP_ID)	;
+														            *^--- PUT 	FACILITY ID 		    VARIABLE NAME HERE ;
+	%LET FACTYP		= PUT(STDPLAC,3.) 	  ;	*<--- PUT 	FACILITY TYPE 		  VARIABLE NAME HERE ;
+
+	%LET PDX		=								        ;	*<--- PUT	PRIM DX INDICATOR	    VARIABLE NAME HERE ;
+	%LET PRIMDX		= /*PDX->*/PRIMDX_		;	*<--- PUT	PRIMARY DIAGNOSIS 	  VARIABLE NAME HERE ; * MARKED AS NAME CHANGED DUE TO CONFLIC WITH CDM VAR SETTINGS ;
+	%LET DXVAR		= 								    ;	*<--- PUT 	DIAGNOSIS 			    VARIABLE NAME HERE ;
+	%LET DXTYP		= DXVER							  ;	*<--- PUT	DIAGNOSIS TYPE 		    VARIABLE NAME HERE ;
+	%LET POA		= 								      ;	*<--- PUT	PRIMARY DX OF ADMISSION VARIABLE NAME HERE ;
+	
+	%LET DRG		= /*PUT(DRG,3.)->*/PUT(DRG_,3.)	;	*<--- PUT	DRG					  VARIABLE NAME HERE ;
+	%LET DRGTYP		= 								    ;	*<--- PUT	DRG GROUP			        VARIABLE NAME HERE ;
+
+
+/*						                      END OF VARIABLE DEFINTIONS					                      	*/
+/* ============================================================================================ */
+
+
+
+/* ====================================================================================== */
+/*						                  PULL NEEDED DATA FROM EACH FILE			            			    */
+/* ====================================================================================== */
+
+%macro pul_nodup_vars(dstin, dstout, rawid, kepvars, renam, wherextra);
+proc sort data = &dstin (pw=&pw. keep=&kepvars.
+						 where=(not missing(&rawid.) &wherextra.) ) nodupkey
+		  out  = &dstout (rename=&renam. compress=binary);
+by &kepvars.;
+run;
+%mend;
+
+/* ====================================================================================== */
+/*						                  PREPARE DATA BEFORE DO DXS ARRAYS		                			*/
+/* ====================================================================================== */
+
+%MACRO PREP_DX(SRC,DATAIN,DATAOUT,YEAR, ENCTYP,PROVIDTYP,FACTYP, DRGTYP, DXS,POAS,DXTYP,PXS);
+
+data &VIEW..PREP_DX_&YEAR._&DATAOUT. / view=&VIEW..PREP_DX_&YEAR._&DATAOUT. ;
+
+length 	PATID 				$20
+        ENCOUNTERID 		$15
+		ENC_TYPE			$2
+		ADMIT_DATE 			4
+		ADMIT_TYPE			$2
+		DISCHARGE_DATE 		4
+		DISCHARGE_STATUS	$2
+		BEGIN_DATE 			4
+		END_DATE 			4
+		DRG					$3
+		DRG_TYPE			$2
+		PROV_ID 			$10
+		PROV_ID_TYPE		$4
+		PROV_TYPE 			$3
+		FACILITY_ID			$10
+        FACILITY_TYPE 		$3
+		SOURCE				$5
+;
+
+label 	PATID			="Unique Patient Identification Number"
+		ENCOUNTERID		="Encounter ID"
+		ENC_TYPE		="Encounter Type"
+		PROV_ID			="Provider ID"
+		PROV_ID_TYPE	="Provider ID Type"
+		PROV_TYPE		="Provider Type"
+		FACILITY_ID		="Facility ID"
+		FACILITY_TYPE	="Place of Service"
+		ADMIT_DATE		="Admission Date"
+		ADMIT_TYPE		="Admit Type"
+		DISCHARGE_DATE	="Discharge Date"
+		DISCHARGE_STATUS="Discharge Status"
+		BEGIN_DATE		="Beginning Date of Service"
+		END_DATE		="Ending Date of Service"
+		SOURCE			="Data Source from the Original File"
+		DRG				="Diagnosis Related Group"
+		DRG_TYPE		="DRG Type"
+;
+
+set &WRKLIB..nodupul_&DATAIN. ;
+
+PATID				= strip(&PID.);
+
+ENCOUNTERID 		= strip(&ENCID.);
+
+ADMIT_DATE			= &ADMDT. ;
+DISCHARGE_DATE		= &DISDT. ;
+BEGIN_DATE			= coalesce(&SVCSTRT.,&ADMDT.) ;
+END_DATE			= coalesce(&SVCEND.,&DISDT.) ;
+
+ADMIT_TYPE			= strip(&ADMTYP.) ;
+
+PROV_ID 			= strip(&PROVID.) ;
+PROV_ID_TYPE 		= strip(&PROVIDTYP.) ;
+
+PROV_TYPE			= strip(&PROVTYP.) ;
+
+FACILITY_ID			= strip(&FACID.) ;
+FACILITY_TYPE		= strip(&FACTYP.) ;
+
+DISCHARGE_STATUS	= strip(&DSTAT.) ;
+
+DRG					= strip(&DRG.) ;
+DRG_TYPE			= strip(&DRGTYP.) ;
+
+SOURCE				= "&SRC.";
+
+array PXS(*) &PXS. ;
+
+if strip(&ENCTYP.) = 'IP' then do;
+	ENC_TYPE="IP";
+	output;
+end;
+
+else if strip(SOURCE) in ("CCAEF","MDCRF","MDCDF") then do;/*<-v-BELOW RULES ARE SPECIFIC TO MARKETSCAN DATA, CAN BE DROPED AND JUMP TO ENC_TYPE=PUT(PXS(I),$CPT99FMT.) PART WHEN IN OTHER DATA */
+	if CASEID^=. then do;	
+		ENC_TYPE='IP';
+		output;
+	end;
+
+	else do i=1 to dim(PXS);
+		if put(pxs(i),$cpt99fmt.)^='OT' then ENC_TYPE = put(pxs(i),$cpt99fmt.) ;
+		output;
+	end;
+end;
+
+else if strip(SOURCE) in ("CCAES","MDCRS","MDCDS") then do;
+	if strip(PROC1)='' then do;
+		ENC_TYPE='IP';
+		output;
+	end;
+
+	else do i=1 to dim(PXS);
+		if put(pxs(i),$cpt99fmt.)^='OT' then ENC_TYPE = put(pxs(i),$cpt99fmt.) ;
+		output;
+	end;
+end;
+
+else if strip(SOURCE) in ("CCAEO","MDCRO","MDCDO") then do;
+	do i=1 to dim(PXS);
+		if put(pxs(i),$cpt99fmt.)^='OT' then ENC_TYPE = put(pxs(i),$cpt99fmt.) ; 
+		output;
+	end;
+end;
+
+
+/*<-^-ABOVE RULES ARE SPECIFIC TO MARKETSCAN DATA, CAN BE DROPED AND JUMP TO ENC_TYPE=PUT(PXS(I),$CPT99FMT.) PART WHEN IN OTHER DATA */
+
+format 	ADMIT_DATE DISCHARGE_DATE BEGIN_DATE END_DATE mmddyy10. ;
+
+keep PATID 			ENCOUNTERID 		ENC_TYPE 
+	ADMIT_DATE 		ADMIT_TYPE
+	DISCHARGE_DATE 	DISCHARGE_STATUS 
+	BEGIN_DATE 		END_DATE 
+	PROV_ID 		PROV_ID_TYPE 		PROV_TYPE 
+	FACILITY_ID 	FACILITY_TYPE 
+	&ADMDX. 		&DXS. 				&POAS.		&DXTYP.
+	SOURCE			DRG					DRG_TYPE
+;
+run;
+
+proc sort data=&VIEW..PREP_DX_&YEAR._&DATAOUT. nodup
+		  out =&WRKLIB..PREP_DX_&YEAR._&DATAOUT.(compress=binary) ;
+by 	PATID 			ENCOUNTERID 		
+	ADMIT_DATE 		ADMIT_TYPE
+	DISCHARGE_DATE 	DISCHARGE_STATUS 
+	BEGIN_DATE 		END_DATE 
+	PROV_ID 		PROV_ID_TYPE 		PROV_TYPE 
+	FACILITY_ID 	FACILITY_TYPE 
+	&ADMDX. 		&DXS. 				&POAS.		&DXTYP.
+	SOURCE 			DRG					DRG_TYPE
+	descending ENC_TYPE ;/*<--sort enc_type at last and descending will make sure the enc_type=. always at the bottom and last, for further cleaning */
+run;
+
+data &wrklib..prep_dx_&year._ipop_&dataout. (compress=binary)
+	 &wrklib..prep_dx_&year._ot_&dataout.	(compress=binary);
+set  &wrklib..prep_dx_&year._&dataout.;
+by 	PATID 			ENCOUNTERID 		
+	ADMIT_DATE 		ADMIT_TYPE
+	DISCHARGE_DATE 	DISCHARGE_STATUS 
+	BEGIN_DATE 		END_DATE 
+	PROV_ID 		PROV_ID_TYPE 		PROV_TYPE 
+	FACILITY_ID 	FACILITY_TYPE 
+	&ADMDX. 		&DXS. 				&POAS.		&DXTYP.
+	SOURCE 			DRG					DRG_TYPE
+	descending ENC_TYPE ;/*<--sort enc_type at last and descending will make sure the enc_type=. always at the bottom and last, for further cleaning */
+retain encSeq;
+if first.source then encSeq=1;
+else encSeq+1;
+if strip(enc_type) not in ('','.') then output &wrklib..prep_dx_&year._ipop_&dataout.;
+else if encseq=1 then do;
+	enc_type="OT";
+	output &wrklib..prep_dx_&year._ot_&dataout.;
+end;
+run; 
+%MEND;
+
+/* ====================================================================================== */
+/*						                  	COMBINE DATA AND DO DXS ARRAYS		            					*/
+/* ====================================================================================== */
+
+
+%MACRO COMBINE_DX_YEAR(FID,YEAR,ADMDX,PRIMDX,DX1,DXS,POAS); *<---This data contains primary dx, so be noted of coding differences below;
+data &VIEW..CL_DX_&YEAR._&FID. / VIEW=&VIEW..CL_DX_&YEAR._&FID. ;
+set &WRKLIB..PREP_DX_&YEAR._ipop_&FID.: 
+	&WRKLIB..PREP_DX_&YEAR._ot_&FID.: 
+;
+
+length 	DX 				$7
+		DX_TYPE 		$2
+		PDX 			$1		
+		POA				$1
+;
+label 	DX				="Diagnosis Code"
+      	DX_TYPE			="Diagnosis Code Type"
+		PDX				="Primary Diagnosis"
+		POA				="Present on Admission (POA)"
+;
+
+if strip(&DXTYP.) = '0' then DX_TYPE='10'; *<--THIS IS CHANGED DUE TO 2015 DATA CONTAINS ICD10 ;
+else DX_TYPE='09';
+
+if strip(&admdx.)^='' then do;
+	DX=strip(&admdx.);
+	PDX="A";
+	if DX not in ('','.') then output;
+end;
+
+if strip(&primdx.)^='' then do;
+	DX=strip(&primdx.);
+	PDX="P";
+	if DX not in ('','.') then output;
+end;
+
+else if strip(primdx_)='' and strip(&dx1.)^='' then do;
+	DX=strip(&dx1.);
+	PDX="P";
+	if DX not in ('','.') then output;
+end;
+
+array dxs(*) &DXS. ;
+array poas(*) &POAS. ;
+
+do i=1 to dim(dxs) ;
+	DX=strip(dxs(i)) ;
+	POA=strip(poas(i)); 
+	PDX="O" ;
+	if DX ne '' then output;
+end;
+
+keep PATID 			ENCOUNTERID 		ENC_TYPE 
+	PROV_ID 		PROV_ID_TYPE 		PROV_TYPE 
+	FACILITY_ID 	FACILITY_TYPE 
+	ADMIT_DATE 		ADMIT_TYPE	
+	DISCHARGE_DATE 	DISCHARGE_STATUS 	BEGIN_DATE 	END_DATE 
+	DX_TYPE 		DX 		POA			PDX
+	DRG				DRG_TYPE
+	SOURCE ;
+*drop primdx_ i  &DXS. &POAS. ;
+run;
+
+proc sort data=&VIEW..CL_DX_&YEAR._&FID. nodup 
+		  out=&WRKLIB..NODUP_DX_&YEAR._&FID. (compress=binary);
+by 	PATID 			ENCOUNTERID 		ENC_TYPE 
+	PROV_ID 		PROV_ID_TYPE 		PROV_TYPE 
+	FACILITY_ID 	FACILITY_TYPE 
+	ADMIT_DATE 		ADMIT_TYPE
+	DISCHARGE_DATE 	DISCHARGE_STATUS 	
+	BEGIN_DATE 		END_DATE 
+	DX_TYPE 		DX 		POA			descending PDX
+	DRG				DRG_TYPE
+	SOURCE ;
+run;
+%MEND;
+
+
+
+/* ==================================== I FILES ==================================== */
+
+/* ----------------------------- PULL NEEDED VARS ------------------------ */
+
+%pul_nodup_vars(&rawlib..ccaei103, 				&wrklib..nodupul_dx_2010_icc, enrolid,
+				enrolid caseid admdate admtyp disdate dstatus DRG pdx dx1-dx15 pproc proc1-proc15 physid unihosp case,(pdx=primdx_ drg=drg_ ), );
+%pul_nodup_vars(&rawlib..mdcri103, 				&wrklib..nodupul_dx_2010_imr, enrolid,
+				enrolid caseid admdate admtyp disdate dstatus DRG pdx dx1-dx15 pproc proc1-proc15 physid unihosp case,(pdx=primdx_ drg=drg_ ), );
+%pul_nodup_vars(&rawlib..medicaid_i_2010_v2, 	&wrklib..nodupul_dx_2010_imd, enrolid, 
+				enrolid caseid admdate admtyp disdate dstatus DRG pdx dx1-dx15 pproc proc1-proc15 phys_id hosp_id case,(pdx=primdx_ drg=drg_ ), );
+
+%macro run_pul_file(fid,cctl,mrtl,mdtl,year);
+%pul_nodup_vars(&rawlib..ccae&fid.&cctl., 		&wrklib..nodupul_dx_&year._&fid.cc, enrolid,
+				enrolid caseid admdate admtyp disdate dstatus DRG pdx dx1-dx15 pproc proc1-proc15 physid /*unihosp*/ case,(pdx=primdx_ drg=drg_ ), );
+%pul_nodup_vars(&rawlib..mdcr&fid.&mrtl., 		&wrklib..nodupul_dx_&year._&fid.mr, enrolid,
+				enrolid caseid admdate admtyp disdate dstatus DRG pdx dx1-dx15 pproc proc1-proc15 physid /*unihosp*/ case,(pdx=primdx_ drg=drg_ ), );
+%pul_nodup_vars(&rawlib..medicaid_&fid._&mdtl., &wrklib..nodupul_dx_&year._&fid.md, enrolid, 
+				enrolid caseid admdate admtyp disdate dstatus DRG pdx dx1-dx15 pproc proc1-proc15 phys_id hosp_id case,(pdx=primdx_ drg=drg_ ), );
+%mend;
+%run_pul_file(i,113,113,2011_v2,2011);
+%run_pul_file(i,123,123,2012_v2,2012);
+%run_pul_file(i,133,133,2013_v3,2013);
+%run_pul_file(i,142,142,2014_v1,2014);
+
+/* ------------------------ PREPARE DATA BEFORE DO DXS ARRAYS ----------------- */
+
+%macro run_prep_dx(fid,strtyer,endyer);
+%do year=&strtyer. %to &endyer. ;
+%PREP_DX(	SRC=CCAE&fid.,		DATAIN=DX_&year._&fid.CC ,	DATAOUT=&fid.CC,	YEAR=&year.,	
+			ENCTYP="IP",		PROVIDTYP=" ",				FACTYP="21",		DRGTYP=" ",
+			DXS=primdx_ DX1-DX15,	POAS=  ,	DXTYP= ,		PXS=PPROC PROC1-PROC15 ); 		*<--NEED TO OMIT POAS/DXTYP/PXS HERE SINCE USED IN 'KEEP'&'SORT' STATEMENT & PROCEDURE;
+%PREP_DX(	SRC=MDCR&fid.,		DATAIN=DX_&year._&fid.MR ,	DATAOUT=&fid.MR,	YEAR=&year.,	
+			ENCTYP="IP",		PROVIDTYP=" ",				FACTYP="21",		DRGTYP=" ",
+			DXS=primdx_ DX1-DX15,	POAS= ,		DXTYP= ,		PXS=PPROC PROC1-PROC15 );
+%PREP_DX(	SRC=MDCD&fid.,		DATAIN=DX_&year._&fid.MD ,	DATAOUT=&fid.MD,	YEAR=&year.,
+			ENCTYP="IP",		PROVIDTYP=" ",				FACTYP="21",		DRGTYP=" ",
+			DXS=primdx_ DX1-DX15,	POAS= ,		DXTYP= ,		PXS=PPROC PROC1-PROC15 );
+%end;
+%mend;
+%run_prep_dx(I,2010,2014);
+
+/* ----------------------- COMBINE DATA AND DO DXS ARRAYS ---------------------- */
+
+%macro run_comb_dx(fid,strtyer,endyer);
+%do year=&strtyer. %to &endyer.;
+%COMBINE_DX_YEAR(&fid.,&year.,NOTEXIST,PRIMDX_,DX1,DX1-DX15,POA1-POA15);
+%end;
+%mend;
+%run_comb_dx(i,2010,2014); *^---NEED TO PUT POA1-15 HERE ALTHOUGH THEY DON'T EXSIT FOR ARRAY PURPOSE;
+
+
+/* ========================================= F FILES ======================================= */
+
+/* ----------------------------- PULL NEEDED VARS ------------------------ */
+
+%let fid=f; %let cctl=103; %let mrtl=103; %let mdtl=2010_v2; %let year=2010;		
+
+%pul_nodup_vars(&rawlib..ccae&fid.&cctl., 		&wrklib..nodupul_dx_&year._&fid.cc, enrolid,
+				enrolid caseid /* admdate admtyp disdate DRG */ dstatus svcdate tsvcdat /*pdx*/dx1-dx9 proc1-proc6 provid stdprov stdplac unihosp case,( ), );
+%pul_nodup_vars(&rawlib..mdcr&fid.&mrtl., 		&wrklib..nodupul_dx_&year._&fid.mr, enrolid,
+				enrolid caseid /* admdate admtyp disdate DRG */ dstatus svcdate tsvcdat /*pdx*/dx1-dx9 proc1-proc6 provid stdprov stdplac unihosp case,( ), );
+%pul_nodup_vars(&rawlib..medicaid_&fid._&mdtl., &wrklib..nodupul_dx_&year._&fid.md, enrolid, 
+				enrolid caseid /* admdate admtyp disdate DRG */ dstatus svcdate tsvcdat /*pdx*/dx1-dx9 proc1-proc6 prov_id stdprov stdplac /*unihosp*/ case,( ), );
+
+%macro run_pul_file(fid,cctl,mrtl,mdtl,year);
+%pul_nodup_vars(&rawlib..ccae&fid.&cctl., 		&wrklib..nodupul_dx_&year._&fid.cc, enrolid,
+				enrolid caseid /* admdate admtyp disdate pdx */ svcdate tsvcdat dstatus dx1-dx9 proc1-proc6 provid stdprov stdplac /*unihosp*/ case,( ), );
+%pul_nodup_vars(&rawlib..mdcr&fid.&mrtl., 		&wrklib..nodupul_dx_&year._&fid.mr, enrolid,
+				enrolid caseid /* admdate admtyp disdate pdx */ svcdate tsvcdat dstatus dx1-dx9 proc1-proc6 provid stdprov stdplac /*unihosp*/ case,( ), );
+%pul_nodup_vars(&rawlib..medicaid_&fid._&mdtl., &wrklib..nodupul_dx_&year._&fid.md, enrolid, 
+				enrolid caseid /* admdate admtyp disdate pdx */ svcdate tsvcdat dstatus dx1-dx9 proc1-proc6 prov_id stdprov stdplac /*unihosp*/ case,( ), );
+%mend;
+%run_pul_file(f,113,113,2011_v2,2011);
+%run_pul_file(f,123,123,2012_v2,2012);
+%run_pul_file(f,133,133,2013_v3,2013);
+%run_pul_file(f,142,142,2014_v1,2014);
+
+/* ------------------------ PREPARE DATA BEFORE DO DXS ARRAYS ----------------- */
+
+%macro run_prep_dx(fid,strtyer,endyer);
+%do year=&strtyer. %to &endyer. ;
+%PREP_DX(	SRC=CCAE&fid.,		DATAIN=DX_&year._&fid.CC ,	DATAOUT=&fid.CC,		YEAR=&year.,	
+			ENCTYP="  ",		PROVIDTYP=" ",				FACTYP=PUT(STDPLAC,3.),	DRGTYP=" ",
+			DXS=DX1-DX9,		POAS=  ,	DXTYP= ,		PXS=PROC1-PROC6 ); 		*<--NEED TO OMIT POAS/DXTYP/PXS HERE SINCE USED IN 'KEEP'&'SORT' STATEMENT & PROCEDURE;
+%PREP_DX(	SRC=MDCR&fid.,		DATAIN=DX_&year._&fid.MR ,	DATAOUT=&fid.MR,		YEAR=&year.,	
+			ENCTYP="  ",		PROVIDTYP=" ",				FACTYP=PUT(STDPLAC,3.),	DRGTYP=" ",
+			DXS=DX1-DX9,		POAS=  ,	DXTYP= ,		PXS=PROC1-PROC6 );
+%PREP_DX(	SRC=MDCD&fid.,		DATAIN=DX_&year._&fid.MD ,	DATAOUT=&fid.MD,		YEAR=&year.,
+			ENCTYP="  ",		PROVIDTYP=" ",				FACTYP=PUT(STDPLAC,3.),	DRGTYP=" ",
+			DXS=DX1-DX9,		POAS=  ,	DXTYP= ,		PXS=PROC1-PROC6 );
+%end;
+%mend;
+%run_prep_dx(F,2010,2014);
+*%run_prep_dx(F,2010,2010);
+
+/* ----------------------- COMBINE DATA AND DO DXS ARRAYS ---------------------- */
+
+%macro run_comb_dx(fid,strtyer,endyer);
+%do year=&strtyer. %to &endyer.;
+%COMBINE_DX_YEAR(&fid.,&year.,NOTEXIST,NOTEXIST,DX1,DX1-DX9,POA1-POA9);
+%end;
+%mend;
+%run_comb_dx(f,2010,2014); *^---NEED TO PUT POA1-15 HERE ALTHOUGH THEY DON'T EXSIT FOR ARRAY PURPOSE;
+*%run_comb_dx(f,2010,2010); 
+
+
+
+/* ========================================= S FILES ======================================= */
+
+
+/* ----------------------------- PULL NEEDED VARS ------------------------ */
+
+%pul_nodup_vars(&rawlib..ccaes103, 				&wrklib..nodupul_dx_2010_scc, enrolid,
+				enrolid caseid admdate admtyp disdate dstatus DRG svcdate tsvcdat pdx dx1-dx4 pproc proc1 provid unihosp stdprov stdplac case,(pdx=primdx_ drg=drg_ ), );
+%pul_nodup_vars(&rawlib..mdcrs103, 				&wrklib..nodupul_dx_2010_smr, enrolid,
+				enrolid caseid admdate admtyp disdate dstatus DRG svcdate tsvcdat pdx dx1-dx4 pproc proc1 provid unihosp stdprov stdplac case,(pdx=primdx_ drg=drg_ ), );
+%pul_nodup_vars(&rawlib..medicaid_s_2010_v2, 	&wrklib..nodupul_dx_2010_smd, enrolid, 
+				enrolid caseid admdate admtyp disdate dstatus DRG svcdate tsvcdat pdx dx1-dx4 pproc proc1 prov_id /*hosp_id*/ stdprov stdplac case,(pdx=primdx_ drg=drg_ ), );
+
+%macro run_pul_file(fid,cctl,mrtl,mdtl,year);
+%pul_nodup_vars(&rawlib..ccae&fid.&cctl., 		&wrklib..nodupul_dx_&year._&fid.cc, enrolid,
+				enrolid caseid admdate admtyp disdate dstatus DRG svcdate tsvcdat pdx dx1-dx4 pproc proc1 provid /*unihosp*/ stdprov stdplac case,(pdx=primdx_ drg=drg_ ), );
+%pul_nodup_vars(&rawlib..mdcr&fid.&mrtl., 		&wrklib..nodupul_dx_&year._&fid.mr, enrolid,
+				enrolid caseid admdate admtyp disdate dstatus DRG svcdate tsvcdat pdx dx1-dx4 pproc proc1 provid /*unihosp*/ stdprov stdplac case,(pdx=primdx_ drg=drg_ ), );
+%pul_nodup_vars(&rawlib..medicaid_&fid._&mdtl., &wrklib..nodupul_dx_&year._&fid.md, enrolid, 
+				enrolid caseid admdate admtyp disdate dstatus DRG svcdate tsvcdat pdx dx1-dx4 pproc proc1 prov_id /*hosp_id*/ stdprov stdplac case,(pdx=primdx_ drg=drg_ ), );
+%mend;
+%run_pul_file(S,113,113,2011_v2,2011);
+%run_pul_file(S,123,123,2012_v2,2012);
+%run_pul_file(S,133,133,2013_v3,2013);
+%run_pul_file(S,142,142,2014_v1,2014);
+
+
+/* ------------------------ PREPARE DATA BEFORE DO DXS ARRAYS ----------------- */
+
+%macro run_prep_dx(fid,strtyer,endyer);
+%do year=&strtyer. %to &endyer. ;
+%PREP_DX(	SRC=CCAE&fid.,			DATAIN=DX_&year._&fid.CC ,	DATAOUT=&fid.CC,		YEAR=&year.,	
+			ENCTYP="  ",			PROVIDTYP=" ",				FACTYP=PUT(STDPLAC,3.),	DRGTYP=" ",
+			DXS=PRIMDX_ DX1-DX4,	POAS=  ,	DXTYP= ,		PXS=PPROC PROC1 ); 		*<--NEED TO OMIT POAS/DXTYP/PXS HERE SINCE USED IN 'KEEP'&'SORT' STATEMENT & PROCEDURE;
+%PREP_DX(	SRC=MDCR&fid.,			DATAIN=DX_&year._&fid.MR ,	DATAOUT=&fid.MR,		YEAR=&year.,	
+			ENCTYP="  ",			PROVIDTYP=" ",				FACTYP=PUT(STDPLAC,3.),	DRGTYP=" ",
+			DXS=PRIMDX_ DX1-DX4,	POAS=  ,	DXTYP= ,		PXS=PPROC PROC1 );
+%PREP_DX(	SRC=MDCD&fid.,			DATAIN=DX_&year._&fid.MD ,	DATAOUT=&fid.MD,		YEAR=&year.,
+			ENCTYP="  ",			PROVIDTYP=" ",				FACTYP=PUT(STDPLAC,3.),	DRGTYP=" ",
+			DXS=PRIMDX_ DX1-DX4,	POAS=  ,	DXTYP= ,		PXS=PPROC PROC1 );
+%end;
+%mend;
+%run_prep_dx(S,2010,2014);
+
+/* ----------------------- COMBINE DATA AND DO DXS ARRAYS ---------------------- */
+
+%macro run_comb_dx(fid,strtyer,endyer);
+%do year=&strtyer. %to &endyer.;
+%COMBINE_DX_YEAR(&fid.,&year.,NOTEXIST,PRIMDX_,DX1,DX1-DX4,POA1-POA4);
+%end;
+%mend;
+%run_comb_dx(S,2010,2014); *^---NEED TO PUT POA1-15 HERE ALTHOUGH THEY DON'T EXSIT FOR ARRAY PURPOSE;
+
+
+/* ========================================= O FILES ======================================= */
+
+/* ----------------------------- PULL NEEDED VARS ------------------------ */
+
+%macro run_pul_file(fid,cctl,mrtl,mdtl,year);
+%pul_nodup_vars(&rawlib..ccae&fid.&cctl., 		&wrklib..nodupul_dx_&year._&fid.cc, enrolid,
+				enrolid /*caseid admdate admtyp disdate dstatus DRG*/ svcdate tsvcdat dx1-dx4 proc1 provid /*unihosp*/ stdprov stdplac case,( ), );
+%pul_nodup_vars(&rawlib..mdcr&fid.&mrtl., 		&wrklib..nodupul_dx_&year._&fid.mr, enrolid,
+				enrolid /*caseid admdate admtyp disdate dstatus DRG*/ svcdate tsvcdat dx1-dx4 proc1 provid /*unihosp*/ stdprov stdplac case,( ), );
+%pul_nodup_vars(&rawlib..medicaid_&fid._&mdtl., &wrklib..nodupul_dx_&year._&fid.md, enrolid, 
+				enrolid /*caseid admdate admtyp disdate dstatus DRG*/ svcdate tsvcdat dx1-dx4 proc1 prov_id /*hosp_id*/ stdprov stdplac case,( ), );
+%mend;
+%run_pul_file(O,103,103,2010_v2,2010);
+%run_pul_file(O,113,113,2011_v2,2011);
+%run_pul_file(O,123,123,2012_v2,2012);
+%run_pul_file(O,133,133,2013_v3,2013);
+%run_pul_file(O,142,142,2014_v1,2014);
+
+/* ------------------------ PREPARE DATA BEFORE DO DXS ARRAYS ----------------- */
+
+%macro run_prep_dx(fid,strtyer,endyer);
+%do year=&strtyer. %to &endyer. ;
+%PREP_DX(	SRC=CCAE&fid.,		DATAIN=DX_&year._&fid.CC ,	DATAOUT=&fid.CC,		YEAR=&year.,	
+			ENCTYP="  ",		PROVIDTYP=" ",				FACTYP=PUT(STDPLAC,3.),	DRGTYP=" ",
+			DXS=DX1-DX4,		POAS=  ,	DXTYP= ,		PXS=PROC1 ); 		*<--NEED TO OMIT POAS/DXTYP/PXS HERE SINCE USED IN 'KEEP'&'SORT' STATEMENT & PROCEDURE;
+%PREP_DX(	SRC=MDCR&fid.,		DATAIN=DX_&year._&fid.MR ,	DATAOUT=&fid.MR,		YEAR=&year.,	
+			ENCTYP="  ",		PROVIDTYP=" ",				FACTYP=PUT(STDPLAC,3.),	DRGTYP=" ",
+			DXS=DX1-DX4,		POAS=  ,	DXTYP= ,		PXS=PROC1 );
+%PREP_DX(	SRC=MDCD&fid.,		DATAIN=DX_&year._&fid.MD ,	DATAOUT=&fid.MD,		YEAR=&year.,
+			ENCTYP="  ",		PROVIDTYP=" ",				FACTYP=PUT(STDPLAC,3.),	DRGTYP=" ",
+
+
+
+%MACRO JOIN_F_WT_I_S_ADMIT(YEAR); *<--to check & match F/I/S files for admit info ;
+proc sql;
+create table &WRKLIB..NODUP_DX_&YEAR._F_I_DT as
+select distinct a.*, b.admit_date, b.discharge_date
+from &WRKLIB..NODUP_DX_&YEAR._F(where=(enc_type='IP') drop=admit_date discharge_date) as a
+left join &WRKLIB..NODUP_DX_&YEAR._I(keep=patid encounterid admit_date discharge_date) as b
+on a.patid=b.patid and a.encounterid=b.encounterid ;
+
+create table &WRKLIB..NODUP_DX_&YEAR._F_I_DX as
+select distinct a.* /*, strip(b.dx) as I_Dx*/
+from &WRKLIB..NODUP_DX_&YEAR._F_I_DT as a
+left join &WRKLIB..NODUP_DX_&YEAR._I(keep=patid encounterid dx) as b
+on a.patid=b.patid and a.encounterid=b.encounterid  and strip(a.dx)=strip(b.dx)
+where strip(b.dx)=''/**/;
+quit;
+
+proc sql;
+create table &WRKLIB..NODUP_DX_&YEAR._F_S_DT as
+select distinct a.*, 
+	coalesce(a.admit_date_,b.admit_date) as Admit_Date length=4 format mmddyy10. label="Admission Date",
+	coalesce(a.discharge_date_,b.discharge_date) as Discharge_Date length=4 format mmddyy10. label="Discharge Date"
+from &WRKLIB..NODUP_DX_&YEAR._F_I_DX(rename=(admit_date=admit_date_ discharge_date=discharge_date_)) as a
+left join &WRKLIB..NODUP_DX_&YEAR._S(keep=patid encounterid admit_date discharge_date enc_type
+								   where=(enc_type="IP")) as b
+on a.patid=b.patid and a.encounterid=b.encounterid ;
+
+create table &WRKLIB..NODUP_DX_&YEAR._F_S_DX as
+select distinct a.*
+from &WRKLIB..NODUP_DX_&YEAR._F_S_DT(drop=admit_date_ discharge_date_) as a
+left join &WRKLIB..NODUP_DX_&YEAR._S(keep=patid encounterid dx enc_type
+								   where=(enc_type="IP")) as b
+on a.patid=b.patid and a.encounterid=b.encounterid  and strip(a.dx)=strip(b.dx)
+where strip(b.dx)='';
+quit;
+%MEND;
+
+%JOIN_F_WT_I_S_ADMIT(2010);
+%JOIN_F_WT_I_S_ADMIT(2011);
+
+%JOIN_F_WT_I_S_ADMIT(2012);
+%JOIN_F_WT_I_S_ADMIT(2013);
+%JOIN_F_WT_I_S_ADMIT(2014);
+
+
+/* ========================================================================== */
+/*					                  	CREATE STANDARDIZED DATA			          			*/
+/* ========================================================================== */
+
+
+%MACRO STD_DX_YEAR(YEAR);
+data &VIEW..DX_&year. / VIEW=&VIEW..DX_&YEAR. ;
+set &WRKLIB..NODUP_DX_&YEAR._I 
+  &WRKLIB..NODUP_DX_&YEAR._F 
+	&WRKLIB..NODUP_DX_&YEAR._F_S_DX 
+	&WRKLIB..NODUP_DX_&YEAR._S
+	&WRKLIB..NODUP_DX_&YEAR._O
+;
+run;
+proc sort data= &VIEW..DX_&YEAR. nodup
+		  out = &STDLIB..DX_&year.(index=(PATID BEGIN_DATE) compress=binary label="&Year DXs from MarketScan I, F, S and O Files") ;
+by 	PATID ADMIT_DATE DISCHARGE_DATE BEGIN_DATE END_DATE 
+	descending PDX DX ;
+run;
+%MEND;
+%STD_DX_YEAR(2010);
+%STD_DX_YEAR(2011);
+%STD_DX_YEAR(2012);
+%STD_DX_YEAR(2013);
+%STD_DX_YEAR(2014);
+
+
+
+/* ============================================================================ */
+/*								Quick Facts Test								*/
+/* ============================================================================ */
+
+%let folder= U:\studies\AS\shared\shuo\Results\20170227-QC New STD DX ;
+
+%macro check_std_dxs_contents(startyr,endyr);
+ods html file="&folder.\Standardized Dx Data Contents &startyr. - &endyr..html";
+%do year=&startyr. %to &endyr.;
+title "Year &year.";
+proc contents data=&stdlib..dx_&year.;run;
+%end;
+ods html close;
+%mend;
+%check_std_dxs_contents(2010,2014);
+
+proc format;
+value mis_n
+	.='miss'
+other='nonmiss'
+;
+value $mis_c
+	'.',''='miss'
+ 	 other='nonmiss'
+;
+run;
+
+%macro check_std_src_enctype(startyr,endyr);
+ods html file="&folder.\Standardized Dx Source & Enc_Type &startyr. - &endyr..html";
+%do year=&startyr. %to &endyr.;
+title "Year &year.";
+proc freq data=&stdlib..dx_&year.;
+table source ENC_TYPE begin_date end_date prov_type /missing;
+format begin_date end_date mis_n. prov_type $mis_c. ;
+run;
+%end;
+ods html close;title;
+%mend;
+%check_std_src_enctype(2010,2014);
+
+/* ============ PICK SOME DISEASES TO TEST DISEASE POPULATION ============ */
+
+%MACRO PULL_DISEASES(YEAR);
+data &WRKLIB..dx_disease_&year.;
+set &STDLIB..dx_ip_&year.(where=(	substr(strip(dx),1,3) in ('714','555','556','274','250') or
+								substr(strip(dx),1,4) in ('6960','6961','7100','7200')	))
+	&STDLIB..dx_op_&year.(where=(	substr(strip(dx),1,3) in ('714','555','556','274','250') or
+								substr(strip(dx),1,4) in ('6960','6961','7100','7200')	));
+if substr(strip(dx),1,3)='714'	then RA=1;	else RA=0;
+if substr(strip(dx),1,4)='6960'	then PSA=1; else PSA=0;
+if substr(strip(dx),1,4)='6961' then PSO=1;	else PSO=0;
+if substr(strip(dx),1,4)='7200'	then AS=1;	else AS=0;
+if substr(strip(dx),1,4)='7100'	then SLE=1;	else SLE=0;
+if substr(strip(dx),1,3) in ('555','556')	then IBD=1;	else IBD=0;
+if substr(strip(dx),1,3)='274'	then GOUT=1;	else GOUT=0;
+if substr(strip(dx),1,3)='250'	then DIAB=1;	else DIAB=0;
+if sum(ra,psa,pso,as,sle,ibd,gout,diab)>=1;
+run;
+%MEND;
+%PULL_DISEASES(2010);
+%PULL_DISEASES(2011);
+%PULL_DISEASES(2012);
+%PULL_DISEASES(2013);
+
+%MACRO SEPA_DISEASE(DISEA);
+data &WRKLIB..dx_&DISEA.;
+set &WRKLIB..dx_disease_2010(in=a where=(&DISEA.=1))
+	&WRKLIB..dx_disease_2011(in=b where=(&DISEA.=1))
+	&WRKLIB..dx_disease_2012(in=c where=(&DISEA.=1))
+	&WRKLIB..dx_disease_2013(in=d where=(&DISEA.=1));
+if a then Year=2010;
+if b then Year=2011;
+if c then Year=2012;
+if d then Year=2013;
+run;
+
+proc sql;
+create table &WRKLIB..dx_&disea._count as
+select distinct year, count(distinct patid) as Unique_&DISEA._Patients 
+from &WRKLIB..dx_&disea. 
+group by year;
+quit;
+%MEND;
+%SEPA_DISEASE(RA);
+%SEPA_DISEASE(PSA);
+%SEPA_DISEASE(PSO);
+%SEPA_DISEASE(AS);
+%SEPA_DISEASE(IBD);
+%SEPA_DISEASE(SLE);
+%SEPA_DISEASE(GOUT);
+%SEPA_DISEASE(DIAB);
+
+data &WRKLIB..dx_disease_count;
+merge &WRKLIB..dx_ra_count
+	  &WRKLIB..dx_psa_count
+	  &WRKLIB..dx_pso_count
+	  &WRKLIB..dx_as_count
+	  &WRKLIB..dx_sle_count
+	  &WRKLIB..dx_ibd_count
+	  &WRKLIB..dx_gout_count
+	  &WRKLIB..dx_diab_count;
+by year;
+run;
+
+ods html file="&folder.\STD_DX_Diseases_HeadCounts_by_Year.html";
+proc sql;
+select distinct * from &WRKLIB..dx_disease_count;
+quit;
+ods html close;
+
+%MACRO PROV_FACI_FREQ(DISEA);
+ods html file="&folder.\STD_DX_Freq_of_ProvTyp_Facility_for_&DISEA._Patients.html";
+proc freq data=&WRKLIB..dx_&disea.;
+table prov_type facility_type/missing;
+title "Frequency of Provider Type & Facility_Type for &DISEA. Patients";
+run;
+ods html close;title;
+%MEND;
+%PROV_FACI_FREQ(RA);
+%PROV_FACI_FREQ(AS);
+%PROV_FACI_FREQ(SLE);
+%PROV_FACI_FREQ(PSA);
+%PROV_FACI_FREQ(PSO);
+%PROV_FACI_FREQ(IBD);
+%PROV_FACI_FREQ(GOUT);
+%PROV_FACI_FREQ(DIAB);
